@@ -3,9 +3,12 @@
 
 """Integer bit shift utilities."""
 
+import pdb
+
 import torch
 
 
+# this function is probably problematic. There's a lot of weird stuff in slayer being done under the hood with the dynamics...
 def right_shift_to_zero(x, bits):
     """Right shift with quantization towards zero implementation.
 
@@ -26,9 +29,10 @@ def right_shift_to_zero(x, bits):
         raise Exception(
             f'Expected torch.int32 or torch.int64 data, found {x.dtype}.'
         )
-    x_sign = 2 * (x > 0) - 1
+    #pdb.set_trace()
+    x_sign = 2 * (x > 0) - 1 # differentiable? not twice right?
     # return x_sign * (x_sign * x >> bits) # This seems to return torch.int64!
-    return (x_sign * ((x_sign * x) >> bits)).to(x.dtype)
+    return (x_sign * ((x_sign * x) / 2**bits)).to(x.dtype)
     # return (x_sign * ((x_sign * x) / (1<<bits))).to(torch.int32)
 
 
@@ -41,7 +45,7 @@ class Q2Zero(torch.autograd.Function):
         """
         """
         x_sign = 2 * (x > 0) - 1
-        return (x_sign * (x_sign * x).to(torch.int32)).to(x.dtype)
+        return (x_sign * ((x_sign * x) / 4096)).to(x.dtype)#(x_sign * (x_sign * x).to(torch.int32)).to(x.dtype)
 
     @staticmethod
     def backward(ctx, grad_output):

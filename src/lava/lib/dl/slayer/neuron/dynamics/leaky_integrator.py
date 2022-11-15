@@ -7,9 +7,11 @@ import os
 import torch
 from torch.utils.cpp_extension import load
 
-from ...utils.int_utils import right_shift_to_zero
+from ...utils.int_utils import right_shift_to_zero, Q2Zero
 from ...utils.utils import staticproperty
 from ... import jitconfig
+
+import pdb
 
 
 class Accelerated:
@@ -82,6 +84,9 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
     ----
     When threshold is not supplied, no spike is generated.
     """
+    
+    debug=False
+    
     if threshold is None:
         threshold = -1  # -1 means no reset mechanism
     _LIDynamics.DEBUG = debug
@@ -212,14 +217,17 @@ def _li_dynamics_fwd(
 ):
     """ """
     output_old = (state * w_scale).clone().detach().to(dtype).to(input.device)
-    decay_int = (1 << 12) - decay.clone().detach().to(dtype).to(input.device)
+    decay_int = (4096) - decay.clone().detach().to(dtype).to(input.device) # replacing 1<<12 with 4096
     output = torch.zeros_like(input)
 
     threshold *= w_scale
 
     for n in range(input.shape[-1]):
-        output_new = right_shift_to_zero(output_old * decay_int, 12) + \
-            (w_scale * input[..., n]).to(dtype)
+        # since 12 is hardcoded will be shifted by 12 always
+        # Q2Zero is apparently autograd compliant version of right_shift_to_zero...
+        # print("li_fwd")
+        # pdb.set_trace()
+        output_new = Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #(output_old * (1-decay))+ (input[..., n]).to(dtype) #Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #right_shift_to_zero(output_old * decay_int, 12) + (w_scale * input[..., n]).to(dtype)
         if threshold > 0:
             spike_new = (output_new >= threshold)
             output_old = output_new * (spike_new < 0.5)
@@ -234,7 +242,7 @@ def _li_dynamics_fwd(
 def _li_dynamics_bwd(grad_output, output, decay):
     """ """
     grad_input = torch.zeros_like(grad_output)
-    decay = 1 - decay / (1 << 12)
+    decay = 1 - decay / (4096)
 
     num_steps = grad_output.shape[-1]
 

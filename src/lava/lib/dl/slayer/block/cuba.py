@@ -25,7 +25,7 @@ class AbstractCuba(torch.nn.Module):
 
 
 def _doc_from_base(base_doc):
-    """ """
+    """ """ 
     return base_doc.__doc__.replace(
         'Abstract', 'CUBA LIF'
     ).replace(
@@ -96,6 +96,18 @@ class Dense(AbstractCuba, base.AbstractDense):
 Dense.__doc__ = _doc_from_base(base.AbstractDense)
 
 
+class MetaDense(AbstractCuba, base.AbstractDenseMeta):
+    def __init__(self, *args, **kwargs):
+        super(MetaDense, self).__init__(*args, **kwargs)
+        self.synapse = synapse.MetaDense(**self.synapse_params)
+        if 'pre_hook_fx' not in kwargs.keys():
+            print("quantizing enabled")
+            self.synapse.pre_hook_fx = self.neuron.quantize_8bit
+        else:
+            print("quantizing disabled")
+        del self.synapse_params
+
+
 class Conv(AbstractCuba, base.AbstractConv):
     def __init__(self, *args, **kwargs):
         super(Conv, self).__init__(*args, **kwargs)
@@ -106,6 +118,16 @@ class Conv(AbstractCuba, base.AbstractConv):
 
 
 Conv.__doc__ = _doc_from_base(base.AbstractConv)
+
+
+class MetaConv(AbstractCuba, base.AbstractConvMeta):
+    def __init__(self, *args, **kwargs):
+        super(MetaConv, self).__init__(*args, **kwargs)
+        self.synapse = synapse.MetaConv(**self.synapse_params)
+        if 'pre_hook_fx' not in kwargs.keys():
+            print("quantizing enabled")
+            self.synapse.pre_hook_fx = self.neuron.quantize_8bit
+        del self.synapse_params
 
 
 class ConvT(AbstractCuba, base.AbstractConvT):

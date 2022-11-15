@@ -6,6 +6,34 @@
 import torch
 from ..axon.delay import delay
 
+import pdb
+
+# adding FastSigmoid to see if this improves model accuracies
+class FastSigmoid(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input_, th=0):
+        ctx.save_for_backward(input_)
+        return  (input_>th).type(input_.dtype) # probably not twice diff right?
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (input_,) = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        return grad_input / (10 * torch.abs(input_) + 1.0) ** 2, None
+    
+    
+# class FastSigmoid(torch.autograd.Function):
+#     @staticmethod
+#     def forward(ctx, input_,th=0):
+#         ctx.save_for_backward(input_)
+#         return  input_ / (1+torch.abs(input_))
+
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         (input_,) = ctx.saved_tensors
+#         grad_input = grad_output.clone()
+#         return grad_input / (torch.abs(input_) + 1.0) ** 2, None
+
 
 def _spike_backward(
     voltage, threshold, tau_rho, scale_rho,
@@ -23,6 +51,7 @@ def _spike_backward(
     )
 
 
+# looks like this is meant to handle graded spikes which we don't really care about right now
 class Spike(torch.autograd.Function):
     """Spiking mechanism with autograd link.
 

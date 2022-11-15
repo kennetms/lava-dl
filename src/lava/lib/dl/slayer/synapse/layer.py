@@ -7,7 +7,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from torchmeta.modules import (MetaModule, MetaConv2d, MetaConv3d, MetaBatchNorm2d, MetaBatchNorm3d,
+                               MetaSequential, MetaLinear)
 
+from collections import OrderedDict
+
+import pdb
+
+ 
 class GenericLayer(torch.nn.Module):
     """Abstract synapse layer class.
 
@@ -156,6 +163,7 @@ class Dense(torch.torch.nn.Conv3d, GenericLayer):
             dendrite accumulation / weighted spikes.
 
         """
+        
         if self._pre_hook_fx is None:
             weight = self.weight
         else:
@@ -163,6 +171,8 @@ class Dense(torch.torch.nn.Conv3d, GenericLayer):
 
         if len(input.shape) == 3:
             old_shape = input.shape
+            # print("dense forward")
+            # pdb.set_trace()
             return F.conv3d(  # bias does not need pre_hook_fx. Its disabled
                 input.reshape(old_shape[0], -1, 1, 1, old_shape[-1]),
                 weight, self.bias,
@@ -173,7 +183,103 @@ class Dense(torch.torch.nn.Conv3d, GenericLayer):
                 input, weight, self.bias,
                 self.stride, self.padding, self.dilation, self.groups,
             )
+           
 
+        
+class MetaDense(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
+    def __init__(
+        self,
+        in_neurons, out_neurons,
+        weight_scale=1, weight_norm=False, pre_hook_fx=None
+    ):
+        """ """
+        # extract information for kernel and in_channels
+        if type(in_neurons) == int:
+            kernel = (1, 1, 1)
+            in_channels = in_neurons
+        elif len(in_neurons) == 2:
+            kernel = (in_neurons[1], in_neurons[0], 1)
+            in_channels = 1
+        elif len(in_neurons) == 3:
+            kernel = (in_neurons[1], in_neurons[0], 1)
+            in_channels = in_neurons[2]
+        else:
+            raise Exception(
+                f'in_neurons should not be more than 3 dimension. '
+                f'Found {in_neurons.shape=}'
+            )
+
+        if type(out_neurons) == int:
+            out_channels = out_neurons
+        else:
+            raise Exception(
+                f'out_neurons should not be more than 1 dimension. '
+                f'Found {out_neurons.shape}'
+            )
+
+        super(MetaDense, self).__init__(
+            in_channels, out_channels, kernel, bias=False
+        )
+
+        if weight_scale != 1:
+            self.weight = torch.nn.Parameter(weight_scale * self.weight)
+
+        self._pre_hook_fx = pre_hook_fx
+
+        if weight_norm is True:
+            self.enable_weight_norm()
+            
+    def forward(self, input, params=None):
+        """Applies the synapse to the input.
+
+        Parameters
+        ----------
+        input : torch tensor
+            Input tensor. Typically spikes. Input is expected to be of shape
+            NCT or NCHWT.
+
+        Returns
+        -------
+        torch tensor
+            dendrite accumulation / weighted spikes.
+
+        """
+        
+        #print("MetaDense Forward")
+        #print(params)
+        #pdb.set_trace()
+        
+        if params is not None:
+             #self.weight)
+            
+            
+            
+            bias = None #params.get('bias', None)
+            if bias is not None:
+                bias = bias.view(bias.shape[0])
+                
+            if isinstance(params, OrderedDict):
+                params = params['weight']
+            #if 'weight' in params.keys():
+            #    params = params['weight']
+        else:
+            #params = OrderedDict()
+            params=self.weight#['weight'] = self.weight
+            bias = self.bias
+            
+        if self._pre_hook_fx is not None:
+            #print("Dense quantizing or something")
+            params = self._pre_hook_fx(params)
+
+        if len(input.shape) == 3:
+            old_shape = input.shape
+            
+            return self._conv_forward(input.reshape(old_shape[0], -1, 1, 1, old_shape[-1]), params, bias).reshape(old_shape[0], -1, old_shape[-1])
+            
+        else:
+            return self._conv_forward(input, params, bias)
+    
+    
 
 class Conv(torch.nn.Conv3d, GenericLayer):
     """Convolution synapse layer.
@@ -321,6 +427,114 @@ class Conv(torch.nn.Conv3d, GenericLayer):
                 self._pre_hook_fx(self.weight), self.bias,
                 self.stride, self.padding, self.dilation, self.groups,
             )
+        
+        
+class MetaConv(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
+    def __init__(
+        self, in_features, out_features, kernel_size,
+        stride=1, padding=0, dilation=1, groups=1,
+        weight_scale=1, weight_norm=False, pre_hook_fx=None
+    ):
+        """ """
+        in_channels = in_features
+        out_channels = out_features
+
+        # kernel
+        if type(kernel_size) == int:
+            kernel = (kernel_size, kernel_size, 1)
+        elif len(kernel_size) == 2:
+            kernel = (kernel_size[0], kernel_size[1], 1)
+        else:
+            raise Exception(
+                f'kernel_size can only be of 1 or 2 dimension. '
+                f'Found {kernel_size.shape=}'
+            )
+
+        # stride
+        if type(stride) == int:
+            stride = (stride, stride, 1)
+        elif len(stride) == 2:
+            stride = (stride[0], stride[1], 1)
+        else:
+            raise Exception(
+                f'stride can be either int or tuple of size 2. '
+                f'Found {stride.shape=}'
+            )
+
+        # padding
+        if type(padding) == int:
+            padding = (padding, padding, 0)
+        elif len(padding) == 2:
+            padding = (padding[0], padding[1], 0)
+        else:
+            raise Exception(
+                f'padding can be either int or tuple of size 2. '
+                f'Found {padding.shape=}'
+            )
+
+        # dilation
+        if type(dilation) == int:
+            dilation = (dilation, dilation, 1)
+        elif len(dilation) == 2:
+            dilation = (dilation[0], dilation[1], 1)
+        else:
+            raise Exception(
+                f'dilation can be either int or tuple of size 2. '
+                f'Found {dilation.shape=}'
+            )
+
+        # groups
+        # no need to check for groups. It can only be int
+
+        super(MetaConv, self).__init__(
+            in_channels, out_channels,
+            kernel, stride, padding, dilation, groups, bias=False
+        )
+
+        if weight_scale != 1:
+            self.weight = torch.nn.Parameter(weight_scale * self.weight)
+
+        self._pre_hook_fx = pre_hook_fx
+
+        if weight_norm is True:
+            self.enable_weight_norm()
+
+    def forward(self, input, params=None):
+        """Applies the synapse to the input.
+
+        Parameters
+        ----------
+        input : torch tensor
+            Input tensor. Typically spikes. Input is expected to be of shape
+            NCHWT.
+
+        Returns
+        -------
+        torch tensor
+            dendrite accumulation / weighted spikes.
+
+        """
+        
+        if params is not None:
+            if isinstance(params, OrderedDict):
+                params = params['weight']
+                bias = params['bias'] #params.get('bias', None)
+            else:
+                #weights = params
+                bias = None
+            
+            if bias is not None:
+                bias = bias.view(bias.shape[0])
+        else:
+            params = self.weight
+            bias = self.bias
+            
+        
+        if self._pre_hook_fx is None:
+            return self._conv_forward(input, params, bias)
+        else:
+            return self._conv_forward(input, self._pre_hook_fx(params), bias)
+        
 
 
 class Pool(torch.nn.Conv3d, GenericLayer):

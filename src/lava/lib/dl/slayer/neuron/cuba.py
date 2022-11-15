@@ -9,8 +9,10 @@ import torch
 from . import base
 from .dynamics import leaky_integrator
 from ..spike.spike import Spike
+from ..spike.spike import FastSigmoid # added this
 from ..utils import quantize
 
+import pdb
 
 # These are tuned heuristically so that scale_grad=1 and tau_grad=1 serves
 # as a good starting point
@@ -23,7 +25,7 @@ TAU_RHO_MULT = 100
 # TAU_RHO_MULT = 1
 
 
-def neuron_params(device_params, scale=1 << 6, p_scale=1 << 12):
+def neuron_params(device_params, scale=64, p_scale=4096):
     """Translates device parameters to neuron parameters.
 
     Parameters
@@ -32,9 +34,9 @@ def neuron_params(device_params, scale=1 << 6, p_scale=1 << 12):
         dictionary of device parameter specification.
 
     scale : int
-        neuron scale value. Default value = 1 << 6.
+        neuron scale value. Default value = 1 << 6 (64)
     p_scale : int
-        parameter scale value. Default value = 1 << 12
+        parameter scale value. Default value = 1 << 12 (4096)
 
     Returns
     -------
@@ -107,18 +109,18 @@ class Neuron(base.Neuron):
     """
     def __init__(
         self, threshold, current_decay, voltage_decay,
-        tau_grad=1, scale_grad=1, scale=1 << 6,
+        tau_grad=1, scale_grad=1, scale=64,
         norm=None, dropout=None,
         shared_param=True, persistent_state=False, requires_grad=False,
-        graded_spike=False
+        graded_spike=False, return_internal_state=False
     ):
         super(Neuron, self).__init__(
             threshold=threshold,
             tau_grad=tau_grad,
             scale_grad=scale_grad,
-            p_scale=1 << 12,
+            p_scale=4096,
             w_scale=scale,
-            s_scale=scale * (1 << 6),
+            s_scale=scale * (64),
             norm=norm,
             dropout=dropout,
             persistent_state=persistent_state,
@@ -132,6 +134,12 @@ class Neuron(base.Neuron):
         # but Loihi spikes if voltage > vth
         # so threshold_eps is added to get the same effect in hardware.
         self.threshold_eps = 0.01 / self.s_scale
+        
+        self.return_internal_state = return_internal_state
+        
+        # using debug mode
+        # print("DYNAMICS DEBUG MODE. NOT USING CUDA ACCELERATION")
+        self.debug=False
 
         if self.shared_param is True:
             if np.isscalar(current_decay) is False:
@@ -231,8 +239,9 @@ class Neuron(base.Neuron):
     def cx_current_decay(self):
         """The compartment current decay parameter to be used for configuring
         Loihi hardware."""
+        # decays are quantized too??? try to turn off and see if it works???
         self.clamp()
-        val = quantize(self.current_decay).cpu().data.numpy().astype(int)
+        val = self.current_decay.cpu().data.numpy().astype(int) #quantize(self.current_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
         return val
@@ -241,8 +250,9 @@ class Neuron(base.Neuron):
     def cx_voltage_decay(self):
         """The compartment voltage decay parameter to be used for configuring
         Loihi hardware."""
+        # quantization goes deeper than layers. turn off for now.
         self.clamp()
-        val = quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        val = self.voltage_decay.cpu().data.numpy().astype(int) #quantize(self.voltage_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
         return val
@@ -289,6 +299,7 @@ class Neuron(base.Neuron):
         torch tensor
             voltage response of the neuron.
         """
+        
         if self.shape is None:
             self.shape = input.shape[1:-1]
             if len(self.shape) == 0:
@@ -334,7 +345,7 @@ class Neuron(base.Neuron):
                 input.shape[:-1]
             ).to(dtype).to(device)
             self.voltage_state = torch.zeros(
-                input.shape[:-1]
+                input.shape[:-1] 
             ).to(dtype).to(device)
 
         if self.current_state.shape[1:] != self.shape:
@@ -353,9 +364,12 @@ class Neuron(base.Neuron):
         if self.requires_grad is True:
             self.clamp()
 
+        # if input.shape[1] == 10:
+        # print("inside dynamics function")
+        # pdb.set_trace()
         current = leaky_integrator.dynamics(
             input,
-            quantize(self.current_decay),
+            self.current_decay,#quantize(self.current_decay),
             self.current_state.contiguous(),
             self.s_scale,
             debug=self.debug
@@ -366,7 +380,7 @@ class Neuron(base.Neuron):
 
         voltage = leaky_integrator.dynamics(
             current,  # bias can be enabled by adding it here
-            quantize(self.voltage_decay),
+            self.voltage_decay,#quantize(self.voltage_decay),
             self.voltage_state.contiguous(),
             self.s_scale,
             self.threshold + self.threshold_eps,
@@ -398,16 +412,21 @@ class Neuron(base.Neuron):
             spike output
 
         """
-        spike = Spike.apply(
-            voltage,
-            self.threshold + self.threshold_eps,
-            self.tau_rho * TAU_RHO_MULT,
-            self.scale_rho * SCALE_RHO_MULT,
-            self.graded_spike,
-            self.voltage_state,
-            # self.s_scale,
-            1,
-        )
+        
+        spike = FastSigmoid.apply(voltage, self.threshold+self.threshold_eps)
+        # pdb.set_trace()
+        # print("spike")
+        
+        # spike = Spike.apply(
+        #     voltage,
+        #     self.threshold + self.threshold_eps,
+        #     self.tau_rho * TAU_RHO_MULT,
+        #     self.scale_rho * SCALE_RHO_MULT,
+        #     self.graded_spike,
+        #     self.voltage_state,
+        #     self.s_scale,
+        #     #1,
+        # )
 
         if self.persistent_state is True:
             with torch.no_grad():
@@ -436,5 +455,23 @@ class Neuron(base.Neuron):
             spike response of the neuron.
 
         """
-        _, voltage = self.dynamics(input)
-        return self.spike(voltage)
+        # print("input")
+        # print(input)
+        # print(input.shape)
+        
+        #print("neuron forward")
+
+        current, voltage = self.dynamics(input)
+        
+        # if self.return_internal_state:
+        #     #print("returning currrent and voltage")
+        #     return current, voltage
+        
+        return self.spike(voltage), voltage
+        
+        if self.return_internal_state:
+            #print("returning currrent and voltage")
+            return current, voltage
+        # else:
+        #     #print("returning spikes")
+        #     return self.spike(voltage)
