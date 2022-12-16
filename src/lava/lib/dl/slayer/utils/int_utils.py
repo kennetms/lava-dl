@@ -41,11 +41,15 @@ class Q2Zero(torch.autograd.Function):
     # fully autograd compliant version of right_shift_to_zero.
     # It is going to be slow. Just for verification purposes.
     @staticmethod
-    def forward(ctx, x):
+    def forward(ctx, x, quantize=False):
         """
         """
-        x_sign = 2 * (x > 0) - 1
-        return (x_sign * ((x_sign * x) / 4096)).to(x.dtype)#(x_sign * (x_sign * x).to(torch.int32)).to(x.dtype)
+        
+        if quantize:
+            x_sign = 2 * (x > 0) - 1
+            return (x_sign * ((x_sign * x) / 4096)).to(x.dtype)#(x_sign * (x_sign * x).to(torch.int32)).to(x.dtype)
+        else:
+            return x
 
     @staticmethod
     def backward(ctx, grad_output):

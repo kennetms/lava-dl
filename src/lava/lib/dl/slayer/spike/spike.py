@@ -9,30 +9,31 @@ from ..axon.delay import delay
 import pdb
 
 # adding FastSigmoid to see if this improves model accuracies
-class FastSigmoid(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input_, th=0):
-        ctx.save_for_backward(input_)
-        return  (input_>th).type(input_.dtype) # probably not twice diff right?
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        (input_,) = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        return grad_input / (10 * torch.abs(input_) + 1.0) ** 2, None
-    
-    
+# could also try derivative of the sigmoid as well
 # class FastSigmoid(torch.autograd.Function):
 #     @staticmethod
-#     def forward(ctx, input_,th=0):
+#     def forward(ctx, input_, th=0):
 #         ctx.save_for_backward(input_)
-#         return  input_ / (1+torch.abs(input_))
+#         return  (input_>th).type(input_.dtype) # probably not twice diff right?
 
 #     @staticmethod
 #     def backward(ctx, grad_output):
 #         (input_,) = ctx.saved_tensors
 #         grad_input = grad_output.clone()
-#         return grad_input / (torch.abs(input_) + 1.0) ** 2, None
+#         return grad_input / (10 * torch.abs(input_) + 1.0) ** 2, None
+    
+    
+class FastSigmoid(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input_,th=0):
+        ctx.save_for_backward(input_)
+        return  input_ / (1+torch.abs(input_))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (input_,) = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        return grad_input / (torch.abs(input_) + 1.0) ** 2, None
 
 
 def _spike_backward(

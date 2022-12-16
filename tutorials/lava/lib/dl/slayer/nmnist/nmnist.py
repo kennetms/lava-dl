@@ -12,6 +12,10 @@ from torch.utils.data import Dataset, DataLoader
 
 import lava.lib.dl.slayer as slayer
 
+import torch.nn.functional as F
+
+import pdb
+
 
 def augment(event):
     x_shift = 4
@@ -122,8 +126,8 @@ class Network(torch.nn.Module):
 
         neuron_params = {
                 'threshold'     : 1.25,
-                'current_decay' : 0.25,
-                'voltage_decay' : 0.03,
+                'current_decay' : 0.25,#0.25,
+                'voltage_decay' : 0.03,#0.03,
                 'tau_grad'      : 0.03,
                 'scale_grad'    : 3,
                 'requires_grad' : False,
@@ -137,22 +141,22 @@ class Network(torch.nn.Module):
         self.blocks = torch.nn.ModuleList([
                 slayer.block.cuba.Dense(
                     neuron_params_drop, 34*34*2, 512,
-                    weight_norm=True, delay=True
+                    weight_norm=False, delay=False
                 ),
                 slayer.block.cuba.Dense(
                     neuron_params_drop, 512, 512,
-                    weight_norm=True, delay=True
+                    weight_norm=False, delay=False
                 ),
                 slayer.block.cuba.Dense(
                     neuron_params, 512, 10,
-                    weight_norm=True
+                    weight_norm=False
                 ),
             ])
 
     def forward(self, spike):
         count = []
         for block in self.blocks:
-            spike = block(spike)
+            spike, volt = block(spike)
             count.append(torch.mean(spike).item())
         return spike, torch.FloatTensor(count).reshape(
             (1, -1)
@@ -184,7 +188,7 @@ if __name__ == '__main__':
     os.makedirs(trained_folder, exist_ok=True)
 
     # device = torch.device('cpu')
-    device = torch.device('cuda')
+    device = torch.device('cuda:1')
 
     net = Network().to(device)
 
@@ -198,10 +202,11 @@ if __name__ == '__main__':
         )
     test_loader = DataLoader(dataset=testing_set, batch_size=32, shuffle=True)
 
-    error = slayer.loss.SpikeRate(
-            true_rate=0.2, false_rate=0.03, reduction='sum'
-        ).to(device)
-    # error = slayer.loss.SpikeMax(mode='logsoftmax').to(device)
+    # error = slayer.loss.SpikeRate(
+    #         true_rate=0.2, false_rate=0.03, reduction='sum'
+    #     ).to(device)
+    error = slayer.loss.SpikeMax(mode='logsoftmax').to(device)
+    #error = F.cross_entropy
 
     stats = slayer.utils.LearningStats()
     assistant = slayer.utils.Assistant(
@@ -213,6 +218,7 @@ if __name__ == '__main__':
 
     for epoch in range(epochs):
         for i, (input, label) in enumerate(train_loader):  # training loop
+            pdb.set_trace()
             output, count = assistant.train(input, label)
             header = [
                     'Event rate : ' +

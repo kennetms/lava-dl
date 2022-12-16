@@ -18,12 +18,12 @@ class MODE(IntEnum):
 class _quantize(torch.autograd.Function):
     """ """
     @staticmethod
-    def forward(ctx, input, step=1):
+    def forward(ctx, input, step=1): # was 1, Loihi needs 2
         """
         """
         # return input
         # print('input quantized with step', step)
-        return torch.round(input / step) * step
+        return torch.round(input / step) * step # not differentiable by default
 
     @staticmethod
     def backward(ctx, gradOutput):
@@ -58,7 +58,7 @@ def quantize(input, step=1, mode=MODE.ROUND):
     input : torch tensor
         input tensor
     step : float
-        quantization step. Default is 1.
+        quantization step. Default is 1., made 1 because loihi
     mode : MODE
         quantization mode. Default is MODE.ROUND.
 

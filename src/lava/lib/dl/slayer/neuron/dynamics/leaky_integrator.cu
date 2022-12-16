@@ -75,7 +75,7 @@ __global__ void LIDynamicsFwdKernel(
 }
 
 template <class T>
-__global__ void LIDynamicsBwdKernel(
+__global__ void LIDynamicsBwdKernel( // not second order differentiable, use python version. could add bwdkernel for this bwdkernel
     T* __restrict__ grad_input_tensor,
     const T* __restrict__ grad_output,
     const T* __restrict__ decay_tensor,

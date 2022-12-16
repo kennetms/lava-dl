@@ -103,6 +103,9 @@ class MetaDense(AbstractCuba, base.AbstractDenseMeta):
         if 'pre_hook_fx' not in kwargs.keys():
             print("quantizing enabled")
             self.synapse.pre_hook_fx = self.neuron.quantize_8bit
+        elif kwargs['pre_hook_fx'] is None:
+            print("quantizing enabled")
+            self.synapse.pre_hook_fx = self.neuron.quantize_8bit
         else:
             print("quantizing disabled")
         del self.synapse_params

@@ -518,7 +518,7 @@ class AbstractDense(torch.nn.Module):
                 self.synapse.weight.data *= self.mask
 
         z = self.synapse(x)
-        x = self.neuron(z)
+        x, v = self.neuron(z)
         # print("base")
         # pdb.set_trace()
         if self.delay_shift is True:
@@ -529,7 +529,7 @@ class AbstractDense(torch.nn.Module):
         if self.count_log is True:
             return x, torch.mean(x > 0)
         else:
-            return x
+            return x, v
 
     @property
     def shape(self):
@@ -686,10 +686,10 @@ class AbstractDenseMeta(MetaModule):
         #print("base")
         #pdb.set_trace()
         
-        if self.delay_shift is True:
+        if self.delay_shift is True: # True by default. So I think both delay_shift and delay is used for Loihi equivalency then.
             s = delay(s,1)
             
-        if self.delay is True:
+        if self.delay is True: # was is not None right? yes so before it always happened
             s = self.delay(s)
         
         return s,v
@@ -847,7 +847,7 @@ class AbstractConv(torch.nn.Module):
         """Forward computation method. The input must be in ``NCHWT`` format.
         """
         z = self.synapse(x)
-        x = self.neuron(z)
+        x, v = self.neuron(z)
         if self.delay_shift is True:
             x = delay(x, 1)
         if self.delay is not None:
@@ -856,7 +856,7 @@ class AbstractConv(torch.nn.Module):
         if self.count_log is True:
             return x, torch.mean(x > 0)
         else:
-            return x
+            return x, v
 
     @property
     def shape(self):

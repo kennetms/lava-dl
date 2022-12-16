@@ -112,7 +112,7 @@ class Neuron(base.Neuron):
         tau_grad=1, scale_grad=1, scale=64,
         norm=None, dropout=None,
         shared_param=True, persistent_state=False, requires_grad=False,
-        graded_spike=False, return_internal_state=False
+        graded_spike=False, return_internal_state=False, quantize=False
     ):
         super(Neuron, self).__init__(
             threshold=threshold,
@@ -140,6 +140,8 @@ class Neuron(base.Neuron):
         # using debug mode
         # print("DYNAMICS DEBUG MODE. NOT USING CUDA ACCELERATION")
         self.debug=False
+        
+        self.quantize=quantize
 
         if self.shared_param is True:
             if np.isscalar(current_decay) is False:
@@ -240,7 +242,7 @@ class Neuron(base.Neuron):
         """The compartment current decay parameter to be used for configuring
         Loihi hardware."""
         # decays are quantized too??? try to turn off and see if it works???
-        self.clamp()
+        self.clamp() # removing clamp, michael said it's better
         val = self.current_decay.cpu().data.numpy().astype(int) #quantize(self.current_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
@@ -251,7 +253,7 @@ class Neuron(base.Neuron):
         """The compartment voltage decay parameter to be used for configuring
         Loihi hardware."""
         # quantization goes deeper than layers. turn off for now.
-        self.clamp()
+        self.clamp() # remove clamp
         val = self.voltage_decay.cpu().data.numpy().astype(int) #quantize(self.voltage_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
@@ -361,8 +363,8 @@ class Neuron(base.Neuron):
         # clamp the values only when learning is enabled
         # This means we don't need to clamp the values after gradient update.
         # It is done in runtime now. Might be slow, but overhead is negligible.
-        if self.requires_grad is True:
-            self.clamp()
+        # if self.requires_grad is True:
+        #     self.clamp()
 
         # if input.shape[1] == 10:
         # print("inside dynamics function")
@@ -372,7 +374,8 @@ class Neuron(base.Neuron):
             self.current_decay,#quantize(self.current_decay),
             self.current_state.contiguous(),
             self.s_scale,
-            debug=self.debug
+            debug=self.debug,
+            quantize=self.quantize
         )
 
         if self.norm is not None:
@@ -384,7 +387,8 @@ class Neuron(base.Neuron):
             self.voltage_state.contiguous(),
             self.s_scale,
             self.threshold + self.threshold_eps,
-            debug=self.debug
+            debug=self.debug,
+            quantize=self.quantize
         )
 
         if self.persistent_state is True:

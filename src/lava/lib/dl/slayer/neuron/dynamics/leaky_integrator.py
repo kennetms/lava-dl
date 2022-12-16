@@ -49,7 +49,7 @@ class Accelerated:
         return Accelerated.module
 
 
-def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
+def dynamics(input, decay, state, w_scale, threshold=None, debug=False, quantize=False):
     """Leaky integrator dynamics. It automatically switches
     between CUDA and CPU implementation depending on available hardware.
 
@@ -85,7 +85,8 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
     When threshold is not supplied, no spike is generated.
     """
     
-    debug=False
+    debug=True
+    #print("Should be using Python and not cuda")
     
     if threshold is None:
         threshold = -1  # -1 means no reset mechanism
@@ -95,7 +96,7 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
         state = state * torch.ones(input.shape[:-1]).to(input.device)
 
     if input.is_cuda is False or debug is True:
-        output = _LIDynamics.apply(input, decay, state, threshold, w_scale)
+        output = _LIDynamics.apply(input, decay, state, threshold, w_scale, quantize)
     else:
         output = Accelerated.leaky_integrator.dynamics(
             input.contiguous(), decay.contiguous(), state.contiguous(),
@@ -129,35 +130,35 @@ class _LIDynamics(torch.autograd.Function):
     DEBUG = False
 
     @staticmethod
-    def forward(ctx, input, decay, state, threshold, w_scale):
+    def forward(ctx, input, decay, state, threshold, w_scale, quantize):
         """ """
         output = _li_dynamics_fwd(
             input, decay, state, threshold,
-            w_scale, dtype=torch.int64
+            w_scale, dtype=torch.int64, quantize=quantize
         )
 
-        if _LIDynamics.DEBUG is True and input.is_cuda is True:
-            _output, *_ = Accelerated.leaky_integrator.fwd(
-                input, decay, state, threshold, w_scale
-            )
-            # print('Fwd Checking')
-            for i in range(output.shape[1]):
-                if torch.norm(output[0, i] - _output[0, i]) > 1e-6:
-                    print('output:', i, torch.norm(
-                        output[0, i] - _output[0, i]
-                    ))
-                    print(output[0, i, :50] * w_scale)
-                    print(_output[0, i, :50] * w_scale)
-                    print(
-                        torch.norm(output - _output),
-                        output[output != _output] * w_scale,
-                        _output[output != _output] * w_scale
-                    )
+#         if _LIDynamics.DEBUG is True and input.is_cuda is True:
+#             _output, *_ = Accelerated.leaky_integrator.fwd(
+#                 input, decay, state, threshold, w_scale
+#             )
+#             # print('Fwd Checking')
+#             for i in range(output.shape[1]):
+#                 if torch.norm(output[0, i] - _output[0, i]) > 1e-6:
+#                     print('output:', i, torch.norm(
+#                         output[0, i] - _output[0, i]
+#                     ))
+#                     print(output[0, i, :50] * w_scale)
+#                     print(_output[0, i, :50] * w_scale)
+#                     print(
+#                         torch.norm(output - _output),
+#                         output[output != _output] * w_scale,
+#                         _output[output != _output] * w_scale
+#                     )
 
-                    # this is due to int32 value underflow
-                    if (output[output != _output] * w_scale).min() > -524287:
-                        raise Exception
-                    raise Exception
+#                     # this is due to int32 value underflow
+#                     if (output[output != _output] * w_scale).min() > -524287:
+#                         raise Exception
+#                     raise Exception
 
         ctx.save_for_backward(output, decay)
 
@@ -170,54 +171,65 @@ class _LIDynamics(torch.autograd.Function):
 
         grad_input, grad_decay = _li_dynamics_bwd(grad_output, output, decay)
 
-        if _LIDynamics.DEBUG is True and grad_output.is_cuda is True:
-            _grad_input, _grad_decay = Accelerated.leaky_integrator.bwd(
-                grad_output, output, decay
-            )
+#         if _LIDynamics.DEBUG is True and grad_output.is_cuda is True:
+#             _grad_input, _grad_decay = Accelerated.leaky_integrator.bwd(
+#                 grad_output, output, decay
+#             )
 
-            # print('Bwd Checking')
-            for i in range(grad_input.shape[1]):
-                diff = torch.abs(grad_input[0, i] - _grad_input[0, i])
-                rel_diff = diff / grad_input[0, i].max()
-                if torch.norm(
-                    grad_input[0, i] - _grad_input[0, i]
-                ) / torch.numel(grad_input[0, i]) > 1e-6:
-                    print('grad_input:', i, torch.norm(
-                        grad_input[0, i] - _grad_input[0, i]
-                    ))
-                    print(grad_input[0, i, -50:])
-                    print(_grad_input[0, i, -50:])
-                    ind = torch.max(rel_diff, dim=-1)[1].item()
-                    print(ind, rel_diff.shape)
-                    print(rel_diff.mean(), rel_diff.max(), rel_diff[ind])
-                    print(
-                        grad_input[0, i, ind:ind + 50],
-                        _grad_input[0, i, ind:ind + 50],
-                        rel_diff[ind:ind + 50],
-                    )
-                    raise Exception
-            if torch.norm(
-                grad_decay - _grad_decay
-            ) / torch.numel(grad_decay) > 1e-2:
-                print('grad_decay:', i, torch.norm(grad_decay - _grad_decay))
-                print(grad_decay[:50])
-                print(_grad_decay[:50])
-                print(
-                    torch.norm(grad_decay - _grad_decay),
-                    grad_decay[grad_decay != _grad_decay],
-                    _grad_decay[grad_decay != _grad_decay],
-                )
-                raise Exception
+#             # print('Bwd Checking')
+#             for i in range(grad_input.shape[1]):
+#                 diff = torch.abs(grad_input[0, i] - _grad_input[0, i])
+#                 rel_diff = diff / grad_input[0, i].max()
+#                 if torch.norm(
+#                     grad_input[0, i] - _grad_input[0, i]
+#                 ) / torch.numel(grad_input[0, i]) > 1e-6:
+#                     print('grad_input:', i, torch.norm(
+#                         grad_input[0, i] - _grad_input[0, i]
+#                     ))
+#                     print(grad_input[0, i, -50:])
+#                     print(_grad_input[0, i, -50:])
+#                     ind = torch.max(rel_diff, dim=-1)[1].item()
+#                     print(ind, rel_diff.shape)
+#                     print(rel_diff.mean(), rel_diff.max(), rel_diff[ind])
+#                     print(
+#                         grad_input[0, i, ind:ind + 50],
+#                         _grad_input[0, i, ind:ind + 50],
+#                         rel_diff[ind:ind + 50],
+#                     )
+#                     raise Exception
+#             if torch.norm(
+#                 grad_decay - _grad_decay
+#             ) / torch.numel(grad_decay) > 1e-2:
+#                 print('grad_decay:', i, torch.norm(grad_decay - _grad_decay))
+#                 print(grad_decay[:50])
+#                 print(_grad_decay[:50])
+#                 print(
+#                     torch.norm(grad_decay - _grad_decay),
+#                     grad_decay[grad_decay != _grad_decay],
+#                     _grad_decay[grad_decay != _grad_decay],
+#                 )
+#                 raise Exception
 
-        return grad_input, grad_decay, None, None, None
+        return grad_input, grad_decay, None, None, None, None
 
 
 def _li_dynamics_fwd(
-    input, decay, state, threshold, w_scale, dtype=torch.int32
+    input, decay, state, threshold, w_scale, dtype=torch.int32, quantize=False
 ):
     """ """
-    output_old = (state * w_scale).clone().detach().to(dtype).to(input.device)
-    decay_int = (4096) - decay.clone().detach().to(dtype).to(input.device) # replacing 1<<12 with 4096
+    # SETTING IT TO TRUE TO RUN THIS MODEL AND SEE HOW IT WORKS
+    #print("python LI dynamics")
+    #pdb.set_trace()
+    if quantize:
+        w_scale=4096
+        output_old = (state*w_scale).clone().detach().to(dtype).to(input.device) #.to(dtype) is int64 so quantization is done here... removing
+        decay_int = (w_scale) - (decay.clone().detach()).to(dtype).to(input.device) # replacing 1<<12 with 4096
+    else:
+        w_scale = 1 # 4096
+        output_old = (state * w_scale).clone().detach().to(input.device) #.to(dtype) is int64 so quantization is done here... removing
+        decay_int = (w_scale) - (decay.clone().detach()/4096).to(input.device) # replacing 1<<12 with 4096
+        
+    
     output = torch.zeros_like(input)
 
     threshold *= w_scale
@@ -227,10 +239,15 @@ def _li_dynamics_fwd(
         # Q2Zero is apparently autograd compliant version of right_shift_to_zero...
         # print("li_fwd")
         # pdb.set_trace()
-        output_new = Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #(output_old * (1-decay))+ (input[..., n]).to(dtype) #Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #right_shift_to_zero(output_old * decay_int, 12) + (w_scale * input[..., n]).to(dtype)
+        # .to(dtype) makes it int!!! so it's quantizing Only use if quantizing
+        output_new = Q2Zero.apply(output_old * decay_int, quantize)+ (w_scale * input[..., n]).to(dtype) #(output_old * (1-decay))+ (input[..., n]).to(dtype) #Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #right_shift_to_zero(output_old * decay_int, 12) + (w_scale * input[..., n]).to(dtype)
         if threshold > 0:
-            spike_new = (output_new >= threshold)
-            output_old = output_new * (spike_new < 0.5)
+            #pdb.set_trace()
+            output_old =torch.where(output_new>=threshold, torch.tensor(0,dtype=output_new.dtype).to(input.device), output_new) # what cuda does but pytorch
+            # this part makes no sense and is not in the cuda... maybe I should copy the cuda here and see if better?
+            # or maybe this is some kind of soft reset but 
+            # spike_new = (output_new >= threshold)
+            # output_old = output_new * (spike_new < 0.5)
         else:
             output_old = output_new
 
@@ -239,7 +256,7 @@ def _li_dynamics_fwd(
     return output
 
 
-def _li_dynamics_bwd(grad_output, output, decay):
+def _li_dynamics_bwd(grad_output, output, decay): # should be second order diff?
     """ """
     grad_input = torch.zeros_like(grad_output)
     decay = 1 - decay / (4096)

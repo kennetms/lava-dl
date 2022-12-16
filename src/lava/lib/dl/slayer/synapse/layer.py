@@ -269,7 +269,8 @@ class MetaDense(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
             
         if self._pre_hook_fx is not None:
             #print("Dense quantizing or something")
-            params = self._pre_hook_fx(params)
+            # default is 1, but need to specify or it won't work. 2 is for loihi
+            params = self._pre_hook_fx(params,2)
 
         if len(input.shape) == 3:
             old_shape = input.shape
@@ -533,7 +534,7 @@ class MetaConv(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
         if self._pre_hook_fx is None:
             return self._conv_forward(input, params, bias)
         else:
-            return self._conv_forward(input, self._pre_hook_fx(params), bias)
+            return self._conv_forward(input, self._pre_hook_fx(params,2), bias)
         
 
 
