@@ -10,6 +10,8 @@ from . import base
 from .dynamics import leaky_integrator, adaptive_threshold
 from ..spike.spike import Spike
 from ..utils import quantize
+from ..spike.spike import FastSigmoid # added this
+import pdb
 
 
 # These are tuned heuristically so that scale_grad=1 and tau_grad=1 serves as
@@ -126,18 +128,18 @@ class Neuron(base.Neuron):
     def __init__(
         self, threshold, threshold_step,
         current_decay, voltage_decay, threshold_decay, refractory_decay,
-        tau_grad=1, scale_grad=1, scale=1 << 6,
+        tau_grad=1, scale_grad=1, scale=64,
         norm=None, dropout=None,
         shared_param=True, persistent_state=False, requires_grad=False,
-        graded_spike=False
+        graded_spike=False, return_internal_state=False, quantize=False
     ):
         super(Neuron, self).__init__(
             threshold=threshold,
             tau_grad=tau_grad,
             scale_grad=scale_grad,
-            p_scale=1 << 12,
+            p_scale=4096,
             w_scale=scale,
-            s_scale=scale * (1 << 6),
+            s_scale=scale * (64),
             norm=norm,
             dropout=dropout,
             persistent_state=persistent_state,
@@ -147,6 +149,11 @@ class Neuron(base.Neuron):
 
         self.threshold_step = int(threshold_step * self.w_scale) / self.w_scale
         self.graded_spike = graded_spike
+        
+        # added to help with quantization for meta
+        self.quantize = quantize
+        self.debug = quantize
+        self.return_internal_state = return_internal_state
 
         if self.shared_param is True:
             if np.isscalar(current_decay) is False:
@@ -313,7 +320,10 @@ class Neuron(base.Neuron):
         """The compartment current decay parameter to be used for configuring
         Loihi hardware."""
         self.clamp()
-        val = quantize(self.current_decay).cpu().data.numpy().astype(int)
+        if self.quantize:
+            val = quantize(self.current_decay).cpu().data.numpy().astype(int)
+        else:
+            val = self.current_decay.cpu().data.numpy()
         if len(val) == 1:
             return val[0]
         return val
@@ -323,7 +333,10 @@ class Neuron(base.Neuron):
         """The compartment voltage decay parameter to be used for configuring
         Loihi hardware."""
         self.clamp()
-        val = quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        if self.quantize:
+            quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        else:
+            val = self.voltage_decay.cpu().data.numpy() 
         if len(val) == 1:
             return val[0]
         return val
@@ -343,7 +356,10 @@ class Neuron(base.Neuron):
         """The compartment refractory decay parameter to be used for
         configuring Loihi hardware."""
         self.clamp()
-        val = quantize(self.refractory_decay).cpu().data.numpy().astype(int)
+        if self.quantize:
+            val = quantize(self.refractory_decay).cpu().data.numpy().astype(int)
+        else:
+            val = self.refractory_decay.cpu().data.numpy()
         if len(val) == 1:
             return val[0]
         return val
@@ -402,6 +418,18 @@ class Neuron(base.Neuron):
         torch tensor
             refractory response of the neuorn.
         """
+        
+        if self.quantize:
+            current_decay = quantize(self.current_decay)
+            voltage_decay = quantize(self.voltage_decay)
+            refractory_decay = quantize(self.refractory_decay)
+            threshold_decay = quantize(self.threshold_decay)
+        else:
+            current_decay = self.current_decay
+            voltage_decay = self.voltage_decay
+            refractory_decay = self.refractory_decay
+            threshold_decay = self.threshold_decay
+        
         if self.shape is None:
             self.shape = input.shape[1:-1]
             if len(self.shape) == 0:
@@ -498,30 +526,35 @@ class Neuron(base.Neuron):
 
         current = leaky_integrator.dynamics(
             input,
-            quantize(self.current_decay),
+            current_decay,#quantize(self.current_decay),
             self.current_state.contiguous(),
             self.s_scale,
-            debug=self.debug
+            debug=self.debug,
+            quantize=self.quantize
         )
 
         voltage = leaky_integrator.dynamics(
             current,
-            quantize(self.voltage_decay),
+            voltage_decay,#quantize(self.voltage_decay),
             self.voltage_state.contiguous(),
             self.s_scale,
-            debug=self.debug
+            debug=self.debug,
+            quantize=self.quantize
         )
 
+        # not using these dynamics now, so it should be fine to not call?
+        #threshold = self.threshold
+        #refractory = self.refractory
         threshold, refractory = adaptive_threshold.dynamics(
             voltage,
             self.refractory_state.contiguous(),
-            quantize(self.refractory_decay),
+            refractory_decay,#quantize(self.refractory_decay),
             self.threshold_state.contiguous(),
-            quantize(self.threshold_decay),
+            threshold_decay,#quantize(self.threshold_decay),
             self.threshold_step,
             self.threshold,
             self.s_scale,
-            debug=self.debug
+            debug=self.quantize
         )
 
         if self.persistent_state is True:
@@ -554,15 +587,19 @@ class Neuron(base.Neuron):
             spike output
 
         """
-        spike = Spike.apply(
-            voltage, threshold + refractory,
-            self.tau_rho * TAU_RHO_MULT,
-            self.scale_rho * SCALE_RHO_MULT,
-            self.graded_spike,
-            self.voltage_state,
-            # self.s_scale,
-            1,
-        )
+        
+        #pdb.set_trace()
+        spike = FastSigmoid.apply(voltage, self.threshold)#+self.threshold_eps)
+        
+        # spike = Spike.apply(
+        #     voltage, threshold + refractory,
+        #     self.tau_rho * TAU_RHO_MULT,
+        #     self.scale_rho * SCALE_RHO_MULT,
+        #     self.graded_spike,
+        #     self.voltage_state,
+        #     # self.s_scale,
+        #     1,
+        # )
 
         if self.persistent_state is True:
             with torch.no_grad():
@@ -607,4 +644,4 @@ class Neuron(base.Neuron):
 
         """
         _, voltage, threshold, refractory = self.dynamics(input)
-        return self.spike(voltage, threshold, refractory)
+        return self.spike(voltage, threshold, refractory), voltage

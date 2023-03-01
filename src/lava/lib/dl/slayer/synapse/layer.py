@@ -269,8 +269,11 @@ class MetaDense(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
             
         if self._pre_hook_fx is not None:
             #print("Dense quantizing or something")
-            # default is 1, but need to specify or it won't work. 2 is for loihi
-            params = self._pre_hook_fx(params,2)
+            # default is descale = False from neuron.base.quantize_8bit, use this I think
+            if self._pre_hook_fx.__name__ == 'quantize_8bit':
+                params = self._pre_hook_fx(params,descale=True)
+            else:
+                params = self._pre_hook_fx(params) #descale is true seems to help if quantizing, multiplies by weight scale, but it's false by default so maybe this isn't good?
 
         if len(input.shape) == 3:
             old_shape = input.shape
@@ -534,7 +537,7 @@ class MetaConv(torch.torch.nn.Conv3d, GenericLayer, MetaModule):
         if self._pre_hook_fx is None:
             return self._conv_forward(input, params, bias)
         else:
-            return self._conv_forward(input, self._pre_hook_fx(params,2), bias)
+            return self._conv_forward(input, self._pre_hook_fx(params), bias)
         
 
 

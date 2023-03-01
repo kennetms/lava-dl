@@ -8,7 +8,7 @@ import pdb
 import torch
 
 
-# this function is probably problematic. There's a lot of weird stuff in slayer being done under the hood with the dynamics...
+# do I really need to have this be differentiable? probably not right? I don't need to learn to do this just have it done right?
 def right_shift_to_zero(x, bits):
     """Right shift with quantization towards zero implementation.
 

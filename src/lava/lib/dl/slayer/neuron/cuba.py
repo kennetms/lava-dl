@@ -139,8 +139,8 @@ class Neuron(base.Neuron):
         
         # using debug mode
         # print("DYNAMICS DEBUG MODE. NOT USING CUDA ACCELERATION")
-        self.debug=False
-        
+        self.debug=quantize
+        #added to help with quantization for meta
         self.quantize=quantize
 
         if self.shared_param is True:
@@ -241,9 +241,12 @@ class Neuron(base.Neuron):
     def cx_current_decay(self):
         """The compartment current decay parameter to be used for configuring
         Loihi hardware."""
-        # decays are quantized too??? try to turn off and see if it works???
-        self.clamp() # removing clamp, michael said it's better
-        val = self.current_decay.cpu().data.numpy().astype(int) #quantize(self.current_decay).cpu().data.numpy().astype(int)
+        # decays are quantized too?
+        self.clamp() # removing clamp, michael said it's better?
+        if self.quantize:
+            val = quantize(self.current_decay).cpu().data.numpy().astype(int)
+        else:
+            val = self.current_decay.cpu().data.numpy()
         if len(val) == 1:
             return val[0]
         return val
@@ -252,9 +255,12 @@ class Neuron(base.Neuron):
     def cx_voltage_decay(self):
         """The compartment voltage decay parameter to be used for configuring
         Loihi hardware."""
-        # quantization goes deeper than layers. turn off for now.
+        # quantization goes deeper than layers.
         self.clamp() # remove clamp
-        val = self.voltage_decay.cpu().data.numpy().astype(int) #quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        if self.quantize:
+            quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        else:
+            val = self.voltage_decay.cpu().data.numpy() 
         if len(val) == 1:
             return val[0]
         return val
@@ -301,6 +307,13 @@ class Neuron(base.Neuron):
         torch tensor
             voltage response of the neuron.
         """
+        
+        if self.quantize:
+            current_decay = quantize(self.current_decay)
+            voltage_decay = quantize(self.voltage_decay)
+        else:
+            current_decay = self.current_decay
+            voltage_decay = self.voltage_decay
         
         if self.shape is None:
             self.shape = input.shape[1:-1]
@@ -371,7 +384,7 @@ class Neuron(base.Neuron):
         # pdb.set_trace()
         current = leaky_integrator.dynamics(
             input,
-            self.current_decay,#quantize(self.current_decay),
+            current_decay,#quantize(self.current_decay),
             self.current_state.contiguous(),
             self.s_scale,
             debug=self.debug,
@@ -383,13 +396,15 @@ class Neuron(base.Neuron):
 
         voltage = leaky_integrator.dynamics(
             current,  # bias can be enabled by adding it here
-            self.voltage_decay,#quantize(self.voltage_decay),
+            voltage_decay,
             self.voltage_state.contiguous(),
             self.s_scale,
             self.threshold + self.threshold_eps,
             debug=self.debug,
             quantize=self.quantize
         )
+        
+        #pdb.set_trace()
 
         if self.persistent_state is True:
             with torch.no_grad():
@@ -470,6 +485,8 @@ class Neuron(base.Neuron):
         # if self.return_internal_state:
         #     #print("returning currrent and voltage")
         #     return current, voltage
+        
+        #pdb.set_trace()
         
         return self.spike(voltage), voltage
         
