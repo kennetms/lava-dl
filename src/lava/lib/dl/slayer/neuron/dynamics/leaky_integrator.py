@@ -86,7 +86,6 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False, quantize
     """
     
     debug=True
-    #print("Should be using Python and not cuda")
     
     if threshold is None:
         threshold = -1  # -1 means no reset mechanism
@@ -212,14 +211,39 @@ class _LIDynamics(torch.autograd.Function):
 
         return grad_input, grad_decay, None, None, None, None
 
+# the original version, should be equivalent to cuda dynamics
+def _li_dynamics_fwd_og(
+    input, decay, state, threshold, w_scale, dtype=torch.int32, quantize=False
+):
+    """ """
+    output_old = (state * w_scale).clone().detach().to(dtype).to(input.device)
+    decay_int = 4096 - decay.clone().detach().to(dtype).to(input.device)
+    output = torch.zeros_like(input)
 
+    threshold *= w_scale
+
+    for n in range(input.shape[-1]):
+        output_new = right_shift_to_zero(output_old * decay_int, 12)+ (w_scale * input[..., n]).to(dtype)
+        #output_new = Q2Zero.apply(output_old * decay_int, quantize) + (w_scale * input[..., n]).to(dtype) #right_shift_to_zero(output_old * decay_int, 12) + \
+            
+        if threshold > 0:
+            # spike_new = (output_new >= threshold)
+            # output_old = output_new * (spike_new < 0.5)
+            output_old =torch.where(output_new>=threshold, torch.tensor(0,dtype=output_new.dtype).to(input.device), output_new)
+        else:
+            output_old = output_new
+
+        output[..., n] = output_new / w_scale
+
+    return output
+
+# my customized version for quantized/non-quantized meta-learning
 def _li_dynamics_fwd(
     input, decay, state, threshold, w_scale, dtype=torch.int32, quantize=False
 ):
     """ """
     # SETTING IT TO TRUE TO RUN THIS MODEL AND SEE HOW IT WORKS
     #print("python LI dynamics")
-    #pdb.set_trace()
     if quantize:
         w_scale=4096
         output_old = (state*w_scale).clone().detach().to(dtype).to(input.device) #.to(dtype) is int64 so quantization is done here... removing
@@ -227,7 +251,7 @@ def _li_dynamics_fwd(
     else:
         w_scale = 1 # 4096
         output_old = (state * w_scale).clone().detach().to(input.device) #.to(dtype) is int64 so quantization is done here... removing
-        decay_int = (w_scale) - (decay.clone().detach()/4096).to(input.device) # replacing 1<<12 with 4096
+        decay_int = 1-(decay.clone().detach()/4096).to(input.device)#(w_scale) - (decay.clone().detach()/4096).to(input.device) # replacing 1<<12 with 4096
         
     
     output = torch.zeros_like(input)
@@ -235,6 +259,7 @@ def _li_dynamics_fwd(
     threshold *= w_scale
 
     for n in range(input.shape[-1]):
+        #pdb.set_trace()
         # since 12 is hardcoded will be shifted by 12 always
         # Q2Zero is apparently autograd compliant version of right_shift_to_zero...
         # print("li_fwd")
@@ -243,11 +268,11 @@ def _li_dynamics_fwd(
         output_new = Q2Zero.apply(output_old * decay_int, quantize)+ (w_scale * input[..., n]).to(dtype) #(output_old * (1-decay))+ (input[..., n]).to(dtype) #Q2Zero.apply(output_old * decay_int)+ (w_scale * input[..., n]).to(dtype) #right_shift_to_zero(output_old * decay_int, 12) + (w_scale * input[..., n]).to(dtype)
         if threshold > 0:
             #pdb.set_trace()
-            output_old =torch.where(output_new>=threshold, torch.tensor(0,dtype=output_new.dtype).to(input.device), output_new) # what cuda does but pytorch
+            #output_old =torch.where(output_new>=threshold, torch.tensor(0,dtype=output_new.dtype).to(input.device), output_new) # what cuda does but pytorch
             # this part makes no sense and is not in the cuda... maybe I should copy the cuda here and see if better?
             # or maybe this is some kind of soft reset but 
-            # spike_new = (output_new >= threshold)
-            # output_old = output_new * (spike_new < 0.5)
+            spike_new = (output_new >= threshold)
+            output_old = output_new * (spike_new < 0.5)
         else:
             output_old = output_new
 
