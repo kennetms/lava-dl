@@ -9,6 +9,7 @@ import h5py
 from lava.magma.core.process.ports.ports import InPort, OutPort
 from lava.magma.core.process.process import AbstractProcess
 from lava.proc.dense.process import Dense as DenseSynapse
+from lava.proc.dense.process import LearningDense as LearningDenseSynapse
 from lava.proc.conv.process import Conv as ConvSynapse
 
 
@@ -163,6 +164,64 @@ class Dense(AbstractBlock):
     def export_hdf5(self, handle: Union[h5py.File, h5py.Group]) -> None:
         raise NotImplementedError
 
+class LearningDense(AbstractBlock):
+    """Learning Dense layer block.
+
+    Parameters
+    ----------
+    shape : tuple or list
+        shape of the layer block in (x, y, z)/WHC format.
+    neuron_params : dict, optional
+        dictionary of neuron parameters. Defaults to None.
+    weight : np.ndarray
+        synaptic weight.
+    bias : np.ndarray or None
+        bias of neuron. None means no bias. Defaults to None.
+    has_graded_input : dict
+        flag for graded spikes at input. Defaults to False.
+    num_weight_bits : int
+        number of weight bits. Defaults to 8.
+    weight_exponent : int
+        weight exponent value. Defaults to 0.
+    input_message_bits : int, optional
+        number of message bits in input spike. Defaults to 0 meaning unary
+        spike.
+    """
+
+    def __init__(self, **kwargs: Union[dict, tuple, list, int, bool]) -> None:
+        super().__init__(**kwargs)
+
+        weight = kwargs.pop('weight')
+        num_weight_bits = kwargs.pop('num_weight_bits', 8)
+        weight_exponent = kwargs.pop('weight_exponent', 0)
+        learning_rule = kwargs.pop('learning_rule')
+
+        self.synapse = LearningDenseSynapse(
+            weights=weight,
+            weight_exp=weight_exponent,
+            num_weight_bits=num_weight_bits,
+            num_message_bits=self.input_message_bits,
+            learning_rule=learning_rule
+        )
+
+        if self.shape != self.synapse.a_out.shape:
+            raise RuntimeError(
+                f'Expected synapse output shape to be {self.shape[-1]}, '
+                f'found {self.synapse.a_out.shape}.'
+            )
+
+        self.neuron = self._neuron(kwargs.pop('bias', None))
+
+        self.inp = InPort(shape=self.synapse.s_in.shape)
+        self.out = OutPort(shape=self.neuron.s_out.shape)
+        self.inp.connect(self.synapse.s_in)
+        self.synapse.a_out.connect(self.neuron.a_in)
+        self.neuron.s_out.connect(self.out)
+
+        self._clean()
+
+    def export_hdf5(self, handle: Union[h5py.File, h5py.Group]) -> None:
+        raise NotImplementedError
 
 class Conv(AbstractBlock):
     """Conv layer block.

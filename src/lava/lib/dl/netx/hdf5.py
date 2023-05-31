@@ -16,7 +16,7 @@ from lava.proc.lif.process import LIF, LIFReset
 from lava.proc.sdn.process import Sigma, Delta, SigmaDelta
 from lava.lib.dl.netx.utils import NetDict
 from lava.lib.dl.netx.utils import optimize_weight_bits
-from lava.lib.dl.netx.blocks.process import Input, Dense, Conv
+from lava.lib.dl.netx.blocks.process import Input, Dense, LearningDense, Conv
 from lava.lib.dl.netx.blocks.models import AbstractPyBlockModel
 
 
@@ -58,7 +58,8 @@ class Network(AbstractProcess):
                  input_message_bits: Optional[int] = 0,
                  input_shape: Optional[Tuple[int, ...]] = None,
                  reset_interval: Optional[int] = None,
-                 reset_offset: int = 0) -> None:
+                 reset_offset: int = 0,
+                 learning_rule: Optional[str] = None) -> None:
         super().__init__(net_config=net_config,
                          num_layers=num_layers,
                          input_message_bits=input_message_bits)
@@ -71,6 +72,7 @@ class Network(AbstractProcess):
         self.input_shape = input_shape
         self.reset_interval = reset_interval
         self.reset_offset = reset_offset
+        self.learning_rule = learning_rule
 
         self.net_str = ''
         self.layers = self._create()
@@ -269,7 +271,8 @@ class Network(AbstractProcess):
     def create_dense(layer_config: h5py.Group,
                      input_message_bits: int = 0,
                      reset_interval: Optional[int] = None,
-                     reset_offset: int = 0) -> Tuple[Dense, str]:
+                     reset_offset: int = 0,
+                     learning_rule: Optional[str] = None) -> Tuple[Dense, str]:
         """Creates dense layer from layer configuration
 
         Parameters
@@ -310,17 +313,24 @@ class Network(AbstractProcess):
                   'num_weight_bits': num_weight_bits,
                   'weight_exponent': weight_exponent,
                   'sign_mode': sign_mode,
-                  'input_message_bits': input_message_bits}
+                  'input_message_bits': input_message_bits,
+                  'learning_rule': learning_rule}
 
         # optional arguments
         if 'bias' in layer_config.keys():
             params['bias'] = layer_config['bias']
 
-        table_entry = Network._table_str(type_str='Dense', width=1, height=1,
-                                         channel=shape[0],
-                                         delay='delay' in layer_config.keys())
-
-        return Dense(**params), table_entry
+        if learning_rule is not None:
+            table_entry = Network._table_str(type_str='Learning Dense', width=1, height=1,
+                                             channel=shape[0],
+                                             delay='delay' in layer_config.keys())
+            dense_proc = LearningDense(**params)
+        else:
+            table_entry = Network._table_str(type_str='Dense', width=1, height=1,
+                                             channel=shape[0],
+                                             delay='delay' in layer_config.keys())
+            dense_proc = Dense(**params)
+        return dense_proc, table_entry
 
     @staticmethod
     def create_conv(layer_config: h5py.Group,
@@ -493,11 +503,16 @@ class Network(AbstractProcess):
                 table = None
 
             elif layer_type == 'dense':
+                if i == num_layers - 1:
+                    lr = self.learning_rule
+                else:
+                    lr = None
                 layer, table = self.create_dense(
                     layer_config=layer_config[i],
                     input_message_bits=input_message_bits,
                     reset_interval=reset_interval,
-                    reset_offset=reset_offset)
+                    reset_offset=reset_offset,
+                    learning_rule=lr)
                 if i >= self.skip_layers:
                     layers.append(layer)
                     reset_offset += 1
