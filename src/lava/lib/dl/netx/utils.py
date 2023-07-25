@@ -136,6 +136,7 @@ def optimize_weight_bits(weight: np.ndarray) -> Tuple[
 
     num_weight_bits = 8 - scale_bits - n
     weight_exponent = -scale_bits
+    print(scale_bits)
 
     weight = np.left_shift(weight.astype(np.int32), int(scale_bits))
 

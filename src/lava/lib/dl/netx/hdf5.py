@@ -5,19 +5,19 @@
 
 from typing import List, Optional, Tuple, Union
 import warnings
-from lava.magma.core.decorator import implements
+from lava.magma.core.decorator import implements, requires, tag
 from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
 import numpy as np
 import h5py
 
 from lava.magma.core.process.process import AbstractProcess
 from lava.magma.core.process.ports.ports import InPort, OutPort
-from lava.proc.lif.process import LIF, LIFReset
+from lava.proc.lif.process import LIF, LIFReset, LIFRefractory
 from lava.proc.sdn.process import Sigma, Delta, SigmaDelta
 from lava.lib.dl.netx.utils import NetDict
 from lava.lib.dl.netx.utils import optimize_weight_bits
 from lava.lib.dl.netx.blocks.process import Input, Dense, LearningDense, Conv
-from lava.lib.dl.netx.blocks.models import AbstractPyBlockModel
+from lava.lib.dl.netx.blocks.models import AbstractPyBlockModel, AbstractPyBlockModelFloat
 
 
 class Network(AbstractProcess):
@@ -130,7 +130,7 @@ class Network(AbstractProcess):
             if num_message_bits is None:
                 num_message_bits = 0  # default value
             if reset_interval is None:
-                neuron_process = LIF
+                neuron_process = LIFRefractory #LIF
             else:
                 neuron_process = LIFReset
             neuron_params = {'neuron_proc': neuron_process,
@@ -303,8 +303,14 @@ class Network(AbstractProcess):
         if weight.ndim == 1:
             weight = weight.reshape(shape[0], -1)
 
-        opt_weights = optimize_weight_bits(weight)
-        weight, num_weight_bits, weight_exponent, sign_mode = opt_weights
+        if learning_rule:
+            num_weight_bits = 7
+            weight_exponent = -1 #-1
+            sign_mode = 1
+            weight = np.zeros_like(weight)
+        else:
+            opt_weights = optimize_weight_bits(weight)
+            weight, num_weight_bits, weight_exponent, sign_mode = opt_weights
 
         # arguments for dense block
         params = {'shape': shape,
@@ -540,6 +546,14 @@ class Network(AbstractProcess):
 
 
 @implements(proc=Network, protocol=LoihiProtocol)
+@tag('fixed_pt')
 class PyNetworkModel(AbstractPyBlockModel):
     def __init__(self, proc: AbstractProcess) -> None:
         super().__init__(proc)
+
+
+# @implements(proc=Network, protocol=LoihiProtocol)
+# @tag('floating_pt')
+# class PyNetworkModelFloat(AbstractPyBlockModelFloat):
+#     def __init__(self, proc: AbstractProcess) -> None:
+#         super().__init__(proc)

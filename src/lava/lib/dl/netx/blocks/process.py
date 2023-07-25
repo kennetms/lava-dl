@@ -12,6 +12,8 @@ from lava.proc.dense.process import Dense as DenseSynapse
 from lava.proc.dense.process import LearningDense as LearningDenseSynapse
 from lava.proc.conv.process import Conv as ConvSynapse
 
+from lava.lib.dl.netx.blocks.lava_utils import RSTDPLIF
+
 
 class AbstractBlock(AbstractProcess):
     """Abstract block definition.
@@ -193,10 +195,10 @@ class LearningDense(AbstractBlock):
 
         weight = kwargs.pop('weight')
         num_weight_bits = kwargs.pop('num_weight_bits', 8)
-        weight_exponent = kwargs.pop('weight_exponent', 0)
+        weight_exponent = kwargs.pop('weight_exponent', -1)
         learning_rule = kwargs.pop('learning_rule')
 
-        self.synapse = LearningDenseSynapse(
+        self.synapse_learning = LearningDenseSynapse(
             weights=weight,
             weight_exp=weight_exponent,
             num_weight_bits=num_weight_bits,
@@ -204,19 +206,31 @@ class LearningDense(AbstractBlock):
             learning_rule=learning_rule
         )
 
-        if self.shape != self.synapse.a_out.shape:
+        self.third_factor_syn = DenseSynapse(weights=np.eye(self.shape[0]), num_message_bits=24)
+
+        if self.shape != self.synapse_learning.a_out.shape:
             raise RuntimeError(
                 f'Expected synapse output shape to be {self.shape[-1]}, '
-                f'found {self.synapse.a_out.shape}.'
+                f'found {self.synapse_learning.a_out.shape}.'
             )
 
-        self.neuron = self._neuron(kwargs.pop('bias', None))
+        #self.neuron = self._neuron(kwargs.pop('bias', None))
+        self.neuron = RSTDPLIF(shape=self.shape, **self.neuron_params, learning_rule=learning_rule)
 
-        self.inp = InPort(shape=self.synapse.s_in.shape)
+        self.inp = InPort(shape=self.synapse_learning.s_in.shape)
         self.out = OutPort(shape=self.neuron.s_out.shape)
-        self.inp.connect(self.synapse.s_in)
-        self.synapse.a_out.connect(self.neuron.a_in)
+        self.inp.connect(self.synapse_learning.s_in)
+        self.synapse_learning.a_out.connect(self.neuron.a_in)
         self.neuron.s_out.connect(self.out)
+
+        self.third_factor_syn.a_out.connect(self.neuron.a_third_factor_in)
+
+        # connect traces
+        self.neuron.s_out_bap.connect(self.synapse_learning.s_in_bap)
+
+        self.neuron.s_out_y1.connect(self.synapse_learning.s_in_y1)
+        self.neuron.s_out_y2.connect(self.synapse_learning.s_in_y2)
+        self.neuron.s_out_y3.connect(self.synapse_learning.s_in_y3)
 
         self._clean()
 
