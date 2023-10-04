@@ -258,7 +258,7 @@ class Neuron(base.Neuron):
         # quantization goes deeper than layers.
         self.clamp() # remove clamp
         if self.quantize:
-            quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+            val = quantize(self.voltage_decay).cpu().data.numpy().astype(int)
         else:
             val = self.voltage_decay.cpu().data.numpy() 
         if len(val) == 1:

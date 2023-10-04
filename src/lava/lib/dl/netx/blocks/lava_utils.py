@@ -143,59 +143,59 @@ class RSTDPLIFBitAcc(LearningNeuronModelFixed, AbstractPyLifModelFixed):
         """Spike when voltage exceeds threshold."""
         return self.v > self.effective_vth
 
-    def subthr_dynamics(self, activation_in: np.ndarray):
-        """Sub-threshold dynamics of current and voltage variables for
-        all refractory LIF models. This is where the 'leaky integration'
-        happens.
-        """
-        # Update current
-        # --------------
-        decay_const_u = self.du + self.ds_offset
-        # Below, u is promoted to int64 to avoid overflow of the product
-        # between u and decay constant beyond int32. Subsequent right shift by
-        # 12 brings us back within 24-bits (and hence, within 32-bits)
-        decayed_curr = np.int64(self.u) * (self.decay_unity - decay_const_u)
-        decayed_curr = np.sign(decayed_curr) * np.right_shift(
-            np.abs(decayed_curr), self.decay_shift
-        )
-        decayed_curr = np.int32(decayed_curr)
-        # Hardware left-shifts synaptic input for MSB alignment
-        activation_in = np.left_shift(activation_in, self.act_shift)
-        # Add synptic input to decayed current
-        decayed_curr += activation_in
-        # Check if value of current is within bounds of 24-bit. Overflows are
-        # handled by wrapping around modulo 2 ** 23. E.g., (2 ** 23) + k
-        # becomes k and -(2**23 + k) becomes -k
-        wrapped_curr = np.where(
-            decayed_curr > self.max_uv_val,
-            decayed_curr - 2 * self.max_uv_val,
-            decayed_curr,
-        )
-        wrapped_curr = np.where(
-            wrapped_curr <= -self.max_uv_val,
-            decayed_curr + 2 * self.max_uv_val,
-            wrapped_curr,
-        )
-        self.u[:] = wrapped_curr
-
-        # refractory
-        non_refractory = self.refractory_period_end < self.time_step
-
-        # Update voltage
-        # --------------
-        decay_const_v = self.dv + self.dm_offset
-
-        neg_voltage_limit = -np.int32(self.max_uv_val) + 1
-        pos_voltage_limit = np.int32(self.max_uv_val) - 1
-        # Decaying voltage similar to current. See the comment above to
-        # understand the need for each of the operations below.
-        decayed_volt = np.int64(self.v) * (self.decay_unity - decay_const_v)
-        decayed_volt = np.sign(decayed_volt) * np.right_shift(
-            np.abs(decayed_volt), self.decay_shift
-        )
-        decayed_volt = np.int32(decayed_volt)
-        updated_volt = decayed_volt + self.u + self.effective_bias
-        self.v[non_refractory] = np.clip(updated_volt[non_refractory], neg_voltage_limit, pos_voltage_limit)
+    # def subthr_dynamics(self, activation_in: np.ndarray):
+    #     """Sub-threshold dynamics of current and voltage variables for
+    #     all refractory LIF models. This is where the 'leaky integration'
+    #     happens.
+    #     """
+    #     # Update current
+    #     # --------------
+    #     decay_const_u = self.du + self.ds_offset
+    #     # Below, u is promoted to int64 to avoid overflow of the product
+    #     # between u and decay constant beyond int32. Subsequent right shift by
+    #     # 12 brings us back within 24-bits (and hence, within 32-bits)
+    #     decayed_curr = np.int64(self.u) * (self.decay_unity - decay_const_u)
+    #     decayed_curr = np.sign(decayed_curr) * np.right_shift(
+    #         np.abs(decayed_curr), self.decay_shift
+    #     )
+    #     decayed_curr = np.int32(decayed_curr)
+    #     # Hardware left-shifts synaptic input for MSB alignment
+    #     activation_in = np.left_shift(activation_in, self.act_shift)
+    #     # Add synptic input to decayed current
+    #     decayed_curr += activation_in
+    #     # Check if value of current is within bounds of 24-bit. Overflows are
+    #     # handled by wrapping around modulo 2 ** 23. E.g., (2 ** 23) + k
+    #     # becomes k and -(2**23 + k) becomes -k
+    #     wrapped_curr = np.where(
+    #         decayed_curr > self.max_uv_val,
+    #         decayed_curr - 2 * self.max_uv_val,
+    #         decayed_curr,
+    #     )
+    #     wrapped_curr = np.where(
+    #         wrapped_curr <= -self.max_uv_val,
+    #         decayed_curr + 2 * self.max_uv_val,
+    #         wrapped_curr,
+    #     )
+    #     self.u[:] = wrapped_curr
+    #
+    #     # refractory
+    #     non_refractory = self.refractory_period_end < self.time_step
+    #
+    #     # Update voltage
+    #     # --------------
+    #     decay_const_v = self.dv + self.dm_offset
+    #
+    #     neg_voltage_limit = -np.int32(self.max_uv_val) + 1
+    #     pos_voltage_limit = np.int32(self.max_uv_val) - 1
+    #     # Decaying voltage similar to current. See the comment above to
+    #     # understand the need for each of the operations below.
+    #     decayed_volt = np.int64(self.v) * (self.decay_unity - decay_const_v)
+    #     decayed_volt = np.sign(decayed_volt) * np.right_shift(
+    #         np.abs(decayed_volt), self.decay_shift
+    #     )
+    #     decayed_volt = np.int32(decayed_volt)
+    #     updated_volt = decayed_volt + self.u + self.effective_bias
+    #     self.v[non_refractory] = np.clip(updated_volt[non_refractory], neg_voltage_limit, pos_voltage_limit)
 
     def process_spikes(self, spike_vector: np.ndarray):
         self.refractory_period_end[spike_vector] = (self.time_step

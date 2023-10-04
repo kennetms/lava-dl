@@ -130,7 +130,7 @@ class Network(AbstractProcess):
             if num_message_bits is None:
                 num_message_bits = 0  # default value
             if reset_interval is None:
-                neuron_process = LIFRefractory #LIF
+                neuron_process = LIF #LIFRefractory
             else:
                 neuron_process = LIFReset
             neuron_params = {'neuron_proc': neuron_process,

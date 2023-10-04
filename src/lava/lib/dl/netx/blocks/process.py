@@ -194,7 +194,7 @@ class LearningDense(AbstractBlock):
         super().__init__(**kwargs)
 
         weight = kwargs.pop('weight')
-        num_weight_bits = kwargs.pop('num_weight_bits', 8)
+        num_weight_bits = kwargs.pop('num_weight_bits', 7)
         weight_exponent = kwargs.pop('weight_exponent', -1)
         learning_rule = kwargs.pop('learning_rule')
 
